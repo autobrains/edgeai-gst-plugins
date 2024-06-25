@@ -80,6 +80,8 @@
 
 #include "tiovx_viss_module.h"
 #include "ti_2a_wrapper.h"
+#include "ae_params/ae_params.h"
+#include "aewb_logger_sender.h"
 
 static const char default_tiovx_sensor_name[] = "SENSOR_SONY_IMX219_RPI";
 #define GST_TYPE_TIOVX_ISP_TARGET (gst_tiovx_isp_target_get_type())
@@ -122,6 +124,9 @@ static const guint postprocess_skip_frames = 1;
 
 #define ISS_IMX390_GAIN_TBL_SIZE                (71U)
 #define ISS_IMX728_GAIN_TBL_SIZE                (421U)
+
+#define AE_PARAMS_FROM_FILE 1
+aewb_logger_sender_state_t *aewb_logger_sender_state_ptr;
 
 static const uint16_t gIMX390GainsTable[ISS_IMX390_GAIN_TBL_SIZE][2U] = {
   {1024, 0x20},
@@ -897,8 +902,10 @@ gst_tiovx_isp_ee_mode_get_type (void)
 
   static const GEnumValue targets[] = {
     {TIVX_VPAC_VISS_EE_MODE_OFF, "EE mode off", "EE_MODE_OFF"},
-    {TIVX_VPAC_VISS_EE_MODE_Y12, "Edge Enhancer is enabled on Y12 output (output0)", "EE_MODE_Y12"},
-    {TIVX_VPAC_VISS_EE_MODE_Y8, "Edge Enhancer is enabled on Y8 output (output2)", "EE_MODE_Y8"},
+    {TIVX_VPAC_VISS_EE_MODE_Y12,
+        "Edge Enhancer is enabled on Y12 output (output0)", "EE_MODE_Y12"},
+    {TIVX_VPAC_VISS_EE_MODE_Y8,
+        "Edge Enhancer is enabled on Y8 output (output2)", "EE_MODE_Y8"},
     {0, NULL, NULL},
   };
 
@@ -1178,7 +1185,8 @@ gst_tiovx_isp_class_init (GstTIOVXISPClass * klass)
 
   g_object_class_install_property (gobject_class, PROP_BYPASS_CAC,
       g_param_spec_boolean ("bypass-cac", "Bypass CAC",
-          "Set to bypass chromatic aberation correction (CAC)", default_bypass_cac,
+          "Set to bypass chromatic aberation correction (CAC)",
+          default_bypass_cac,
           G_PARAM_READWRITE | GST_PARAM_MUTABLE_READY |
           G_PARAM_STATIC_STRINGS));
 
@@ -1260,6 +1268,9 @@ gst_tiovx_isp_init (GstTIOVXISP * self)
   for (i = 0; i < MAX_NUM_CHANNELS; i++) {
     self->input_references[i] = NULL;
   }
+
+  aewb_logger_sender_state_ptr =
+      aewb_logger_create_sender ("192.168.5.1", 8081);
 }
 
 static void
@@ -1294,6 +1305,7 @@ gst_tiovx_isp_finalize (GObject * obj)
   }
 
   G_OBJECT_CLASS (gst_tiovx_isp_parent_class)->finalize (obj);
+  aewb_logger_destroy_sender (aewb_logger_sender_state_ptr);
 }
 
 static void
@@ -1503,8 +1515,7 @@ gst_tiovx_isp_init_module (GstTIOVXMiso * miso,
   self->viss_obj.input.params.meta_height_after = self->meta_height_after;
   self->viss_obj.input.params.width = GST_VIDEO_INFO_WIDTH (&in_info);
   self->viss_obj.input.params.height = GST_VIDEO_INFO_HEIGHT (&in_info)
-                                       - self->meta_height_before
-                                       - self->meta_height_after;
+      - self->meta_height_before - self->meta_height_after;
 
   format_str = gst_structure_get_string (sink_caps_st, "format");
 
@@ -1961,12 +1972,14 @@ gst_tiovx_isp_fixate_caps (GstTIOVXMiso * self,
 
     if ((-1 != meta_height_before) &&
         (this_meta_height_before != meta_height_before)) {
-      GST_ERROR_OBJECT (self, "Meta height before doesn't match in all sink caps");
+      GST_ERROR_OBJECT (self,
+          "Meta height before doesn't match in all sink caps");
       return NULL;
     }
     if ((-1 != meta_height_after) &&
         (this_meta_height_after != meta_height_after)) {
-      GST_ERROR_OBJECT (self, "Meta height after doesn't match in all sink caps");
+      GST_ERROR_OBJECT (self,
+          "Meta height after doesn't match in all sink caps");
       return NULL;
     }
 
@@ -1997,17 +2010,17 @@ gst_tiovx_isp_fixate_caps (GstTIOVXMiso * self,
 
   if (src_width != width) {
     if (!gst_structure_fixate_field_nearest_int (candidate_output_structure,
-          "width", width)) {
-        GST_ERROR_OBJECT (self, "Could not Fixate Width to %d", width);
-        return NULL;
+            "width", width)) {
+      GST_ERROR_OBJECT (self, "Could not Fixate Width to %d", width);
+      return NULL;
     }
   }
 
   if (src_height != height) {
     if (!gst_structure_fixate_field_nearest_int (candidate_output_structure,
-          "height", height)) {
-        GST_ERROR_OBJECT (self, "Could not Fixate Height to %d", height);
-        return NULL;
+            "height", height)) {
+      GST_ERROR_OBJECT (self, "Could not Fixate Height to %d", height);
+      return NULL;
     }
   }
 
@@ -2294,6 +2307,13 @@ gst_tiovx_isp_postprocess (GstTIOVXMiso * miso)
         TI_2A_wrapper_process (&sink_pad->ti_2a_wrapper, &sink_pad->aewb_config,
         h3a_data, &sink_pad->sensor_in_data, ae_awb_result,
         &sink_pad->sensor_out_data);
+
+    aewb_logger_send_log (aewb_logger_sender_state_ptr,
+        &sink_pad->ti_2a_wrapper,
+        &sink_pad->sensor_in_data,
+        &sink_pad->sensor_out_data,
+        &sink_pad->aewb_config, h3a_data, ae_awb_result);
+
     if (ti_2a_wrapper_ret) {
       GST_ERROR_OBJECT (self, "Unable to process TI 2A wrapper: %d",
           ti_2a_wrapper_ret);
@@ -2421,30 +2441,41 @@ get_imx390_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
   return status;
 }
 
-static int32_t get_imx728_ae_dyn_params (IssAeDynamicParams *p_ae_dynPrms)
+IssAeDynamicParams imx728_ae_dynPrms;
+static int32_t
+get_imx728_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
 {
-    int32_t status = -1;
-    uint8_t count = 0;
+  int32_t status = -1;
+#if (AE_PARAMS_FROM_FILE == 0)
+  uint8_t count = 0;
 
-    p_ae_dynPrms->targetBrightnessRange.min = 30;
-    p_ae_dynPrms->targetBrightnessRange.max = 50;
-    p_ae_dynPrms->targetBrightness = 45;
-    p_ae_dynPrms->threshold = 5;
-    p_ae_dynPrms->enableBlc = 0;
-    
-    p_ae_dynPrms->exposureTimeStepSize         = 1000;  // usec
-    p_ae_dynPrms->exposureTimeRange[count].min = 5000; 
-    p_ae_dynPrms->exposureTimeRange[count].max = 5000; 
-    p_ae_dynPrms->analogGainRange[count].min = 1*1024;
-    p_ae_dynPrms->analogGainRange[count].max = 32228*1024;
-    p_ae_dynPrms->digitalGainRange[count].min = 256;
-    p_ae_dynPrms->digitalGainRange[count].max = 256;
-    count++;
+  p_ae_dynPrms->targetBrightnessRange.min = 30;
+  p_ae_dynPrms->targetBrightnessRange.max = 50;
+  p_ae_dynPrms->targetBrightness = 45;
+  p_ae_dynPrms->threshold = 5;
+  p_ae_dynPrms->enableBlc = 0;
 
-    p_ae_dynPrms->numAeDynParams = count;
-    status = 0;
-    return status;    
+  p_ae_dynPrms->exposureTimeStepSize = 1000;    // usec
+  p_ae_dynPrms->exposureTimeRange[count].min = 5000;
+  p_ae_dynPrms->exposureTimeRange[count].max = 5000;
+  p_ae_dynPrms->analogGainRange[count].min = 1 * 1024;
+  p_ae_dynPrms->analogGainRange[count].max = 32228 * 1024;
+  p_ae_dynPrms->digitalGainRange[count].min = 256;
+  p_ae_dynPrms->digitalGainRange[count].max = 256;
+  count++;
+
+  p_ae_dynPrms->numAeDynParams = count;
+#else
+  if (imx728_ae_dynPrms.numAeDynParams == 0) {
+    ae_params_get (&imx728_ae_dynPrms);
+  }
+  memcpy (p_ae_dynPrms, &imx728_ae_dynPrms, sizeof (IssAeDynamicParams));
+#endif
+
+  status = 0;
+  return status;
 }
+
 static int32_t
 get_ov2312_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
 {
@@ -2491,12 +2522,12 @@ get_ox05b1s_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
 
   /* setting brightness target and range: range is always [target-threshold, target+threshold].
      - numbers in 0~255 range
-  */
+   */
   p_ae_dynPrms->targetBrightnessRange.min = 40; /* lower bound of the target brightness range */
   p_ae_dynPrms->targetBrightnessRange.max = 50; /* upper bound of the target brightness range */
-  p_ae_dynPrms->targetBrightness = 45;          /* target brightness */
-  p_ae_dynPrms->threshold = 5;                  /* maximum change above or below the target brightness */
-  p_ae_dynPrms->enableBlc = 0;                  /* not used */
+  p_ae_dynPrms->targetBrightness = 45;  /* target brightness */
+  p_ae_dynPrms->threshold = 5;  /* maximum change above or below the target brightness */
+  p_ae_dynPrms->enableBlc = 0;  /* not used */
 
   /* setting exposure and gains */
   p_ae_dynPrms->exposureTimeStepSize = 1;       /* step size of automatic adjustment for exposure time */
@@ -2507,13 +2538,13 @@ get_ox05b1s_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
    *        - frame length is height + vertical blanking, which is 2128 for 2592x1944 resolution
    *   - minimum analog gain is 1x (0x3508=0x01, 0x3509=0x00)
    *   - maximum analog gain is 15.5x (0x3508=0x0F, 0x3509=0x80)
-  */
-  p_ae_dynPrms->exposureTimeRange[count].min = 47;     /* 6*16.67/2128*1000 micro sec */
-  p_ae_dynPrms->exposureTimeRange[count].max = 16435;  /* (2128-30)*16.67/2128*1000 micro sec */
-  p_ae_dynPrms->analogGainRange[count].min = 1024;     /* 1x gain - 16*64 */
-  p_ae_dynPrms->analogGainRange[count].max = 15872;    /* 15.5x gain - 16*15.5*64 = 328*64 = 15872 */
-  p_ae_dynPrms->digitalGainRange[count].min = 256;     /* digital gain not used */
-  p_ae_dynPrms->digitalGainRange[count].max = 256;     /* digital gain not used */
+   */
+  p_ae_dynPrms->exposureTimeRange[count].min = 47;      /* 6*16.67/2128*1000 micro sec */
+  p_ae_dynPrms->exposureTimeRange[count].max = 16435;   /* (2128-30)*16.67/2128*1000 micro sec */
+  p_ae_dynPrms->analogGainRange[count].min = 1024;      /* 1x gain - 16*64 */
+  p_ae_dynPrms->analogGainRange[count].max = 15872;     /* 15.5x gain - 16*15.5*64 = 328*64 = 15872 */
+  p_ae_dynPrms->digitalGainRange[count].min = 256;      /* digital gain not used */
+  p_ae_dynPrms->digitalGainRange[count].max = 256;      /* digital gain not used */
 
   count++;
 
@@ -2540,8 +2571,8 @@ gst_tiovx_isp_map_2A_values (GstTIOVXISP * self, int exposure_time,
     *exposure_time_mapped = exposure_time;
     *analog_gain_mapped = gIMX390GainsTable[i][1];
   } else if (g_strcmp0 (self->sensor_name, "SENSOR_SONY_IMX728") == 0) {
-      *analog_gain_mapped = (int)((log2(analog_gain) - 10.0) * 60.0);
-      *exposure_time_mapped = exposure_time;
+    *analog_gain_mapped = (int) ((log2 (analog_gain) - 10.0) * 60.0);
+    *exposure_time_mapped = exposure_time;
   } else if (g_strcmp0 (self->sensor_name, "SENSOR_SONY_IMX219_RPI") == 0) {
     double multiplier = 0;
     /* Theoretically time per line should be computed as:
@@ -2561,8 +2592,9 @@ gst_tiovx_isp_map_2A_values (GstTIOVXISP * self, int exposure_time,
     *exposure_time_mapped = (60 * 1300 * exposure_time / 1000000);
     // ms to row_time conversion - row_time(us) = 1000000/fps/height
     *analog_gain_mapped = analog_gain;
-} else if (g_strcmp0 (self->sensor_name, "SENSOR_OX05B1S") == 0) {
-    *exposure_time_mapped = (int) ((double)exposure_time * 2128 * 60 / 1000000 + 0.5);
+  } else if (g_strcmp0 (self->sensor_name, "SENSOR_OX05B1S") == 0) {
+    *exposure_time_mapped =
+        (int) ((double) exposure_time * 2128 * 60 / 1000000 + 0.5);
     *analog_gain_mapped = analog_gain / 64;
   } else {
     GST_ERROR_OBJECT (self, "Unknown sensor: %s", self->sensor_name);
