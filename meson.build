@@ -51,6 +51,7 @@ c = meson.get_compiler('c')
 
 #C math library
 math_dep = c.find_library('m', required : true)
+aewb_logger_dep = c.find_library ('aewb_logger', required:true)
 
 ## Dependencies
 # Define plugin dependencies
@@ -60,7 +61,8 @@ plugin_deps = [
  gst_allocator,
  gst_video_dep,
  edgeai_apps_utils_dep,
- math_dep
+ math_dep,
+ aewb_logger_dep
  ]
 
 if get_option('dl-plugins').enabled()
@@ -162,7 +164,7 @@ endif
 # Define header directories
 #libgsttiovx_inc_dir = include_directories('libgstc')
 gst_ti_ovx_inc_dir = include_directories('gst-libs/')
-configinc = include_directories('.')
+configinc = include_directories('.', '/usr/include/aewb_logger/')
 
 # Define compiler args and include directories
 c_args = ['-DHAVE_CONFIG_H']
