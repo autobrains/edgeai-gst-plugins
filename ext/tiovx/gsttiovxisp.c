@@ -2006,17 +2006,17 @@ gst_tiovx_isp_fixate_caps (GstTIOVXMiso * self,
 
   if (src_width != width) {
     if (!gst_structure_fixate_field_nearest_int (candidate_output_structure,
-            "width", width)) {
-      GST_ERROR_OBJECT (self, "Could not Fixate Width to %d", width);
-      return NULL;
+          "width", width)) {
+        GST_ERROR_OBJECT (self, "Could not Fixate Width to %d", width);
+        return NULL;
     }
   }
 
   if (src_height != height) {
     if (!gst_structure_fixate_field_nearest_int (candidate_output_structure,
-            "height", height)) {
-      GST_ERROR_OBJECT (self, "Could not Fixate Height to %d", height);
-      return NULL;
+          "height", height)) {
+        GST_ERROR_OBJECT (self, "Could not Fixate Height to %d", height);
+        return NULL;
     }
   }
 
@@ -2520,7 +2520,7 @@ get_ox05b1s_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
 
   /* setting brightness target and range: range is always [target-threshold, target+threshold].
      - numbers in 0~255 range
-   */
+  */
   p_ae_dynPrms->targetBrightnessRange.min = 40; /* lower bound of the target brightness range */
   p_ae_dynPrms->targetBrightnessRange.max = 50; /* upper bound of the target brightness range */
   p_ae_dynPrms->targetBrightness = 45;          /* target brightness */
@@ -2570,7 +2570,7 @@ gst_tiovx_isp_map_2A_values (GstTIOVXISP * self, int exposure_time,
     *analog_gain_mapped = gIMX390GainsTable[i][1];
   } else if (g_strcmp0 (self->sensor_name, "SENSOR_SONY_IMX728") == 0) {
       *analog_gain_mapped = (int)((log2(analog_gain) - 10.0) * 60.0);
-    *exposure_time_mapped = exposure_time;
+      *exposure_time_mapped = exposure_time;
   } else if (g_strcmp0 (self->sensor_name, "SENSOR_SONY_IMX219_RPI") == 0) {
     double multiplier = 0;
     /* Theoretically time per line should be computed as:
@@ -2590,7 +2590,7 @@ gst_tiovx_isp_map_2A_values (GstTIOVXISP * self, int exposure_time,
     *exposure_time_mapped = (60 * 1300 * exposure_time / 1000000);
     // ms to row_time conversion - row_time(us) = 1000000/fps/height
     *analog_gain_mapped = analog_gain;
-  } else if (g_strcmp0 (self->sensor_name, "SENSOR_OX05B1S") == 0) {
+} else if (g_strcmp0 (self->sensor_name, "SENSOR_OX05B1S") == 0) {
     *exposure_time_mapped = (int) ((double)exposure_time * 2128 * 60 / 1000000 + 0.5);
     *analog_gain_mapped = analog_gain / 64;
   } else {
