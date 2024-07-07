@@ -2536,7 +2536,7 @@ get_ox05b1s_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
    *        - frame length is height + vertical blanking, which is 2128 for 2592x1944 resolution
    *   - minimum analog gain is 1x (0x3508=0x01, 0x3509=0x00)
    *   - maximum analog gain is 15.5x (0x3508=0x0F, 0x3509=0x80)
-   */
+  */
   p_ae_dynPrms->exposureTimeRange[count].min = 47;     /* 6*16.67/2128*1000 micro sec */
   p_ae_dynPrms->exposureTimeRange[count].max = 16435;  /* (2128-30)*16.67/2128*1000 micro sec */
   p_ae_dynPrms->analogGainRange[count].min = 1024;     /* 1x gain - 16*64 */
