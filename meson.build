@@ -195,6 +195,8 @@ if get_option('enable-tidl').enabled() and SOC != 'am62x' and SOC != 'am62p'
   c_args += ['-DENABLE_TIDL']
 endif
 
+c_args += ['-DAE_PARAMS_FROM_FILE']
+
 cpp_args = c_args
 
 # Define installation directories
