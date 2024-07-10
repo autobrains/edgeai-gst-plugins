@@ -2436,7 +2436,8 @@ get_imx390_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
   return status;
 }
 
-IssAeDynamicParams imx728_ae_dynPrms;
+//use global var to cache yaml instead of reading yaml from file every frame.
+IssAeDynamicParams imx728_ae_dynPrms; 
 static int32_t get_imx728_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
 {
   int32_t status = -1;
