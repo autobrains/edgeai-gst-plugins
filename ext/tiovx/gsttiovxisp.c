@@ -2437,8 +2437,7 @@ get_imx390_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
 }
 
 IssAeDynamicParams imx728_ae_dynPrms;
-static int32_t
-get_imx728_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
+static int32_t get_imx728_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
 {
   int32_t status = -1;
 #ifndef AE_PARAMS_FROM_FILE
