@@ -80,6 +80,8 @@
 
 #include "tiovx_viss_module.h"
 #include "ti_2a_wrapper.h"
+#include "ae_params/ae_params.h"
+#include "aewb_logger_sender.h"
 
 static const char default_tiovx_sensor_name[] = "SENSOR_SONY_IMX219_RPI";
 #define GST_TYPE_TIOVX_ISP_TARGET (gst_tiovx_isp_target_get_type())
@@ -122,6 +124,8 @@ static const guint postprocess_skip_frames = 1;
 
 #define ISS_IMX390_GAIN_TBL_SIZE                (71U)
 #define ISS_IMX728_GAIN_TBL_SIZE                (421U)
+
+aewb_logger_sender_state_t *aewb_logger_sender_state_ptr;
 
 static const uint16_t gIMX390GainsTable[ISS_IMX390_GAIN_TBL_SIZE][2U] = {
   {1024, 0x20},
@@ -1260,6 +1264,9 @@ gst_tiovx_isp_init (GstTIOVXISP * self)
   for (i = 0; i < MAX_NUM_CHANNELS; i++) {
     self->input_references[i] = NULL;
   }
+
+  aewb_logger_sender_state_ptr =
+      aewb_logger_create_sender ("192.168.5.1", 8081);
 }
 
 static void
@@ -1294,6 +1301,7 @@ gst_tiovx_isp_finalize (GObject * obj)
   }
 
   G_OBJECT_CLASS (gst_tiovx_isp_parent_class)->finalize (obj);
+  aewb_logger_destroy_sender (aewb_logger_sender_state_ptr);
 }
 
 static void
@@ -2294,6 +2302,13 @@ gst_tiovx_isp_postprocess (GstTIOVXMiso * miso)
         TI_2A_wrapper_process (&sink_pad->ti_2a_wrapper, &sink_pad->aewb_config,
         h3a_data, &sink_pad->sensor_in_data, ae_awb_result,
         &sink_pad->sensor_out_data);
+
+    aewb_logger_send_log (aewb_logger_sender_state_ptr,
+        &sink_pad->ti_2a_wrapper,
+        &sink_pad->sensor_in_data,
+        &sink_pad->sensor_out_data,
+        &sink_pad->aewb_config, h3a_data, ae_awb_result);
+
     if (ti_2a_wrapper_ret) {
       GST_ERROR_OBJECT (self, "Unable to process TI 2A wrapper: %d",
           ti_2a_wrapper_ret);
@@ -2421,30 +2436,43 @@ get_imx390_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
   return status;
 }
 
-static int32_t get_imx728_ae_dyn_params (IssAeDynamicParams *p_ae_dynPrms)
+//use global var to cache yaml instead of reading yaml from file every frame.
+IssAeDynamicParams imx728_ae_dynPrms; 
+static int32_t get_imx728_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
 {
-    int32_t status = -1;
-    uint8_t count = 0;
+  int32_t status = -1;
+#ifndef AE_PARAMS_FROM_FILE
+  uint8_t count = 0;
 
-    p_ae_dynPrms->targetBrightnessRange.min = 30;
-    p_ae_dynPrms->targetBrightnessRange.max = 50;
-    p_ae_dynPrms->targetBrightness = 45;
-    p_ae_dynPrms->threshold = 5;
-    p_ae_dynPrms->enableBlc = 0;
-    
-    p_ae_dynPrms->exposureTimeStepSize         = 1000;  // usec
-    p_ae_dynPrms->exposureTimeRange[count].min = 5000; 
-    p_ae_dynPrms->exposureTimeRange[count].max = 5000; 
-    p_ae_dynPrms->analogGainRange[count].min = 1*1024;
-    p_ae_dynPrms->analogGainRange[count].max = 32228*1024;
-    p_ae_dynPrms->digitalGainRange[count].min = 256;
-    p_ae_dynPrms->digitalGainRange[count].max = 256;
-    count++;
+  p_ae_dynPrms->targetBrightnessRange.min = 30;
+  p_ae_dynPrms->targetBrightnessRange.max = 50;
+  p_ae_dynPrms->targetBrightness = 45;
+  p_ae_dynPrms->threshold = 5;
+  p_ae_dynPrms->enableBlc = 0;
 
-    p_ae_dynPrms->numAeDynParams = count;
-    status = 0;
-    return status;    
+  p_ae_dynPrms->exposureTimeStepSize         = 1000;  // usec
+  p_ae_dynPrms->exposureTimeRange[count].min = 5000; 
+  p_ae_dynPrms->exposureTimeRange[count].max = 5000; 
+  p_ae_dynPrms->analogGainRange[count].min = 1*1024;
+  p_ae_dynPrms->analogGainRange[count].max = 32228*1024;
+  p_ae_dynPrms->digitalGainRange[count].min = 256;
+  p_ae_dynPrms->digitalGainRange[count].max = 256;
+  count++;
+
+  p_ae_dynPrms->numAeDynParams = count;
+#else
+  if (imx728_ae_dynPrms.numAeDynParams == 0) {
+    // load from file only on the first get_imx728_ae_dyn_params() call
+    ae_params_get (&imx728_ae_dynPrms);
+  }
+
+  memcpy (p_ae_dynPrms, &imx728_ae_dynPrms, sizeof (IssAeDynamicParams));
+#endif
+
+  status = 0;
+  return status;
 }
+
 static int32_t
 get_ov2312_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
 {
