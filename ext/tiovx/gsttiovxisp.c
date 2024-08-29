@@ -2462,10 +2462,15 @@ static int32_t get_imx728_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
   p_ae_dynPrms->numAeDynParams = count;
 #else
   if (imx728_ae_dynPrms.numAeDynParams == 0) {
-    // load from file only on the first get_imx728_ae_dyn_params() call
-    ae_params_get (&imx728_ae_dynPrms);
+    // load from yaml file into cache
+    // this happens only once on the first call to get_imx728_ae_dyn_params() 
+    ae_params_t ae_params;
+    ae_params_get(&ae_params);
+    memcpy(&imx728_ae_dynPrms, &ae_params.dyn_params, sizeof(IssAeDynamicParams));
+    TI_AE_set_cur_y_from_cc_pixels(ae_params.cur_y_from_cc_pixels);
   }
 
+  //copy from cache to function out argument
   memcpy (p_ae_dynPrms, &imx728_ae_dynPrms, sizeof (IssAeDynamicParams));
 #endif
 
