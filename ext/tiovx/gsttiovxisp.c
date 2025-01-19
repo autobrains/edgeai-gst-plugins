@@ -2442,7 +2442,7 @@ get_imx390_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
 }
 
 //use global var to cache yaml instead of reading yaml from file every frame.
-IssAeDynamicParams imx728_ae_dynPrms; 
+ae_params_t imx728_ae_dynPrms; 
 static int32_t get_imx728_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
 {
   int32_t status = -1;
@@ -2466,7 +2466,7 @@ static int32_t get_imx728_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
 
   p_ae_dynPrms->numAeDynParams = count;
 #else
-  if (imx728_ae_dynPrms.numAeDynParams == 0) {
+  if (imx728_ae_dynPrms.dyn_params.numAeDynParams == 0) {
     // load from file only on the first get_imx728_ae_dyn_params() call
     ae_params_get (&imx728_ae_dynPrms);
   }
