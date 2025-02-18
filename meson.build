@@ -164,7 +164,7 @@ endif
 # Define header directories
 #libgsttiovx_inc_dir = include_directories('libgstc')
 gst_ti_ovx_inc_dir = include_directories('gst-libs/')
-configinc = include_directories('.', '/usr/include/aewb_logger/')
+configinc = include_directories('.', '/usr/include/aewb_logger/',  '/usr/include/ae_params/', '/usr/include/aewb_debug_mode/')
 
 # Define compiler args and include directories
 c_args = ['-DHAVE_CONFIG_H']
