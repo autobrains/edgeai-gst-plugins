@@ -80,7 +80,8 @@
 
 #include "tiovx_viss_module.h"
 #include "ti_2a_wrapper.h"
-#include "ae_params/ae_params.h"
+#include "ae_params.h"
+#include "periodic_fixed_exposure_gain_switch.h"
 #include "aewb_logger_sender.h"
 
 static const char default_tiovx_sensor_name[] = "SENSOR_SONY_IMX219_RPI";
@@ -2303,6 +2304,8 @@ gst_tiovx_isp_postprocess (GstTIOVXMiso * miso)
         h3a_data, &sink_pad->sensor_in_data, ae_awb_result,
         &sink_pad->sensor_out_data);
 
+    periodic_fixed_exposure_gain_switch_run_if_en(&sink_pad->sensor_out_data, ae_awb_result);        
+
     aewb_logger_send_log (aewb_logger_sender_state_ptr,
         &sink_pad->ti_2a_wrapper,
         &sink_pad->sensor_in_data,
@@ -2437,7 +2440,7 @@ get_imx390_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
 }
 
 //use global var to cache yaml instead of reading yaml from file every frame.
-IssAeDynamicParams imx728_ae_dynPrms; 
+ae_params_t imx728_ae_params; 
 static int32_t get_imx728_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
 {
   int32_t status = -1;
@@ -2461,12 +2464,14 @@ static int32_t get_imx728_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
 
   p_ae_dynPrms->numAeDynParams = count;
 #else
-  if (imx728_ae_dynPrms.numAeDynParams == 0) {
+  if (imx728_ae_params.dyn_params.numAeDynParams == 0) {
     // load from file only on the first get_imx728_ae_dyn_params() call
-    ae_params_get (&imx728_ae_dynPrms);
+    ae_params_get (&imx728_ae_params);
+    TI_AE_set_cur_y_from_cc_pixels(imx728_ae_params.cur_y_from_cc_pixels);
+    periodic_fixed_exposure_gain_switch_set_config(&imx728_ae_params.periodic_fixed_exposure_gain_switch);
   }
 
-  memcpy (p_ae_dynPrms, &imx728_ae_dynPrms, sizeof (IssAeDynamicParams));
+  memcpy (p_ae_dynPrms, &imx728_ae_params.dyn_params, sizeof (IssAeDynamicParams));
 #endif
 
   status = 0;
@@ -2568,7 +2573,17 @@ gst_tiovx_isp_map_2A_values (GstTIOVXISP * self, int exposure_time,
     *exposure_time_mapped = exposure_time;
     *analog_gain_mapped = gIMX390GainsTable[i][1];
   } else if (g_strcmp0 (self->sensor_name, "SENSOR_SONY_IMX728") == 0) {
-      *analog_gain_mapped = (int)((log2(analog_gain) - 10.0) * 60.0);
+      /*
+        see imx728 application note in "5.2.3.7.2. Full ME" about FME_ISPGAIN units - converting magnification factor to 0.1dB
+        
+          20*log10(magnification_factor_float) 
+        = 20*log2(magnification_factor_U22.10/1024)/log10(2) 
+        = log2(magnification_factor_U22.10/1024)*6.02
+        = (log2(magnification_factor_U22.10)-10)*6.02
+
+        how to confirm - write gain to FME_ISPGAIN in 0.1dB and read result back from E177,E178,E179 front embedded data in magnification factor 
+      */
+      *analog_gain_mapped = (int)round((log2(analog_gain)-10)/0.1*6.02);
       *exposure_time_mapped = exposure_time;
   } else if (g_strcmp0 (self->sensor_name, "SENSOR_SONY_IMX219_RPI") == 0) {
     double multiplier = 0;
