@@ -1090,6 +1090,12 @@ static int32_t get_ov2312_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms);
 
 static int32_t get_ox05b1s_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms);
 
+static int32_t get_ox08d10_ae_dyn_params (IssAeDynamicParams *p_ae_dynPrms);
+
+static int32_t get_imx031_ae_dyn_params (IssAeDynamicParams *p_ae_dynPrms);
+
+static int32_t get_imx623_ae_dyn_params (IssAeDynamicParams *p_ae_dynPrms);
+
 static void gst_tiovx_isp_map_2A_values (GstTIOVXISP * self, int exposure_time,
     int analog_gain, gint32 * exposure_time_mapped,
     gint32 * analog_gain_mapped);
@@ -1140,7 +1146,10 @@ gst_tiovx_isp_class_init (GstTIOVXISPClass * klass)
           "                                   SENSOR_SONY_IMX219_RPI\n"
           "                                   SENSOR_OX05B1S\n"
           "                                   SENSOR_OV2312_UB953_LI\n"
-          "                                   SENSOR_SONY_IMX728",
+          "                                   SENSOR_SONY_IMX728"
+          "                                   SENSOR_OX08D10\n"
+          "                                   SENSOR_SONY_IMX031\n"
+          "                                   SENSOR_SONY_IMX623\n",
           NULL,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_READY));
@@ -2294,6 +2303,12 @@ gst_tiovx_isp_postprocess (GstTIOVXMiso * miso)
       get_ov2312_ae_dyn_params (&sink_pad->sensor_in_data.ae_dynPrms);
     } else if (g_strcmp0 (self->sensor_name, "SENSOR_OX05B1S") == 0) {
       get_ox05b1s_ae_dyn_params (&sink_pad->sensor_in_data.ae_dynPrms);
+    } else if (g_strcmp0 (self->sensor_name, "SENSOR_OX08D10") == 0) {
+      get_ox08d10_ae_dyn_params (&sink_pad->sensor_in_data.ae_dynPrms);
+    } else if (g_strcmp0 (self->sensor_name, "SENSOR_SONY_IMX031") == 0) {
+      get_imx031_ae_dyn_params (&sink_pad->sensor_in_data.ae_dynPrms);
+    } else if (g_strcmp0 (self->sensor_name, "SENSOR_SONY_IMX623") == 0) {
+      get_imx623_ae_dyn_params (&sink_pad->sensor_in_data.ae_dynPrms);
     } else {
       get_imx219_ae_dyn_params (&sink_pad->sensor_in_data.ae_dynPrms);
     }
@@ -2350,20 +2365,25 @@ gst_tiovx_isp_postprocess (GstTIOVXMiso * miso)
       GST_LOG_OBJECT (sink_pad, "%s Sensor specific analog gain: %d",
           self->sensor_name, analog_gain);
 
-      control.id = exposure_ctrl_id;
-      control.value = coarse_integration_time;
-      ret_val = ioctl (fd, VIDIOC_S_CTRL, &control);
-      if (ret_val < 0) {
-        GST_ERROR_OBJECT (self, "Unable to call exposure ioctl: %d", ret_val);
-        goto close_fd;
-      }
+      if (strcmp(self->sensor_name, "SENSOR_OX08D10") != 0 &&
+            strcmp(self->sensor_name, "SENSOR_SONY_IMX031") != 0 &&
+            strcmp(self->sensor_name, "SENSOR_SONY_IMX623") != 0) {
 
-      control.id = analog_gain_ctrl_id;
-      control.value = analog_gain;
-      ret_val = ioctl (fd, VIDIOC_S_CTRL, &control);
-      if (ret_val < 0) {
-        GST_ERROR_OBJECT (self, "Unable to call analog gain ioctl: %d",
-            ret_val);
+        control.id = exposure_ctrl_id;
+        control.value = coarse_integration_time;
+        ret_val = ioctl (fd, VIDIOC_S_CTRL, &control);
+        if (ret_val < 0) {
+          GST_ERROR_OBJECT (self, "Unable to call exposure ioctl: %d", ret_val);
+          goto close_fd;
+        }
+
+        control.id = analog_gain_ctrl_id;
+        control.value = analog_gain;
+        ret_val = ioctl (fd, VIDIOC_S_CTRL, &control);
+        if (ret_val < 0) {
+          GST_ERROR_OBJECT (self, "Unable to call analog gain ioctl: %d",
+              ret_val);
+        }
       }
 
     close_fd:
@@ -2556,6 +2576,123 @@ get_ox05b1s_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
   return status;
 }
 
+//use global var to cache yaml instead of reading yaml from file every frame.
+ae_params_t ox08d10_ae_dynPrms; 
+static int32_t get_ox08d10_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
+{
+  int32_t status = -1;
+#ifndef AE_PARAMS_FROM_FILE
+  // TODO: implement. currently copied from imx728
+  uint8_t count = 0;
+
+  p_ae_dynPrms->targetBrightnessRange.min = 30;
+  p_ae_dynPrms->targetBrightnessRange.max = 50;
+  p_ae_dynPrms->targetBrightness = 45;
+  p_ae_dynPrms->threshold = 5;
+  p_ae_dynPrms->enableBlc = 0;
+
+  p_ae_dynPrms->exposureTimeStepSize         = 1000;  // usec
+  p_ae_dynPrms->exposureTimeRange[count].min = 5000; 
+  p_ae_dynPrms->exposureTimeRange[count].max = 5000; 
+  p_ae_dynPrms->analogGainRange[count].min = 1*1024;
+  p_ae_dynPrms->analogGainRange[count].max = 32228*1024;
+  p_ae_dynPrms->digitalGainRange[count].min = 256;
+  p_ae_dynPrms->digitalGainRange[count].max = 256;
+  count++;
+
+  p_ae_dynPrms->numAeDynParams = count;
+#else
+  if (ox08d10_ae_dynPrms.dyn_params.numAeDynParams == 0) {
+    // load from file only on the first get_ox08d10_ae_dyn_params() call
+    ae_params_get_for_sensor("SENSOR_OX08D10", &ox08d10_ae_dynPrms);
+    TI_AE_set_cur_y_from_cc_pixels(ox08d10_ae_dynPrms.cur_y_from_cc_pixels);
+  }
+
+  memcpy (p_ae_dynPrms, &ox08d10_ae_dynPrms, sizeof (IssAeDynamicParams));
+#endif
+
+  status = 0;
+  return status;
+}
+
+//use global var to cache yaml instead of reading yaml from file every frame.
+ae_params_t imx031_ae_dynPrms; 
+static int32_t get_imx031_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
+{
+  int32_t status = -1;
+#ifndef AE_PARAMS_FROM_FILE
+  // TODO: implement. currently copied from imx728
+  uint8_t count = 0;
+
+  p_ae_dynPrms->targetBrightnessRange.min = 30;
+  p_ae_dynPrms->targetBrightnessRange.max = 50;
+  p_ae_dynPrms->targetBrightness = 45;
+  p_ae_dynPrms->threshold = 5;
+  p_ae_dynPrms->enableBlc = 0;
+
+  p_ae_dynPrms->exposureTimeStepSize         = 1000;  // usec
+  p_ae_dynPrms->exposureTimeRange[count].min = 5000; 
+  p_ae_dynPrms->exposureTimeRange[count].max = 5000; 
+  p_ae_dynPrms->analogGainRange[count].min = 1*1024;
+  p_ae_dynPrms->analogGainRange[count].max = 32228*1024;
+  p_ae_dynPrms->digitalGainRange[count].min = 256;
+  p_ae_dynPrms->digitalGainRange[count].max = 256;
+  count++;
+
+  p_ae_dynPrms->numAeDynParams = count;
+#else
+  if (imx031_ae_dynPrms.dyn_params.numAeDynParams == 0) {
+    // load from file only on the first get_imx031_ae_dyn_params() call
+    ae_params_get_for_sensor("SENSOR_SONY_IMX031", &imx031_ae_dynPrms);
+    TI_AE_set_cur_y_from_cc_pixels(imx031_ae_dynPrms.cur_y_from_cc_pixels);
+  }
+
+  memcpy (p_ae_dynPrms, &imx031_ae_dynPrms, sizeof (IssAeDynamicParams));
+#endif
+
+  status = 0;
+  return status;
+}
+
+//use global var to cache yaml instead of reading yaml from file every frame.
+ae_params_t imx623_ae_dynPrms; 
+static int32_t get_imx623_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
+{
+  int32_t status = -1;
+#ifndef AE_PARAMS_FROM_FILE
+  // TODO: implement. currently copied from imx728
+  uint8_t count = 0;
+
+  p_ae_dynPrms->targetBrightnessRange.min = 30;
+  p_ae_dynPrms->targetBrightnessRange.max = 50;
+  p_ae_dynPrms->targetBrightness = 45;
+  p_ae_dynPrms->threshold = 5;
+  p_ae_dynPrms->enableBlc = 0;
+
+  p_ae_dynPrms->exposureTimeStepSize         = 1000;  // usec
+  p_ae_dynPrms->exposureTimeRange[count].min = 5000; 
+  p_ae_dynPrms->exposureTimeRange[count].max = 5000; 
+  p_ae_dynPrms->analogGainRange[count].min = 1*1024;
+  p_ae_dynPrms->analogGainRange[count].max = 32228*1024;
+  p_ae_dynPrms->digitalGainRange[count].min = 256;
+  p_ae_dynPrms->digitalGainRange[count].max = 256;
+  count++;
+
+  p_ae_dynPrms->numAeDynParams = count;
+#else
+  if (imx623_ae_dynPrms.dyn_params.numAeDynParams == 0) {
+    // load from file only on the first get_imx623_ae_dyn_params() call
+    ae_params_get_for_sensor("SENSOR_SONY_IMX623", &imx623_ae_dynPrms);
+    TI_AE_set_cur_y_from_cc_pixels(imx623_ae_dynPrms.cur_y_from_cc_pixels);
+  }
+
+  memcpy (p_ae_dynPrms, &imx623_ae_dynPrms, sizeof (IssAeDynamicParams));
+#endif
+
+  status = 0;
+  return status;
+}
+
 static void
 gst_tiovx_isp_map_2A_values (GstTIOVXISP * self, int exposure_time,
     int analog_gain, gint32 * exposure_time_mapped, gint32 * analog_gain_mapped)
@@ -2598,6 +2735,18 @@ gst_tiovx_isp_map_2A_values (GstTIOVXISP * self, int exposure_time,
 } else if (g_strcmp0 (self->sensor_name, "SENSOR_OX05B1S") == 0) {
     *exposure_time_mapped = (int) ((double)exposure_time * 2128 * 60 / 1000000 + 0.5);
     *analog_gain_mapped = analog_gain / 64;
+  } else if (strcmp(sensor_name, "SENSOR_OX08D10") == 0) {
+    // TODO: implement. currently copied from imx728
+    *analog_gain_mapped = (int)((log2(analog_gain) - 10.0) * 60.0);
+    *exposure_time_mapped = exposure_time;
+  } else if (strcmp(sensor_name, "SENSOR_SONY_IMX031") == 0) {
+    // TODO: implement. currently copied from imx728
+    *analog_gain_mapped = (int)((log2(analog_gain) - 10.0) * 60.0);
+    *exposure_time_mapped = exposure_time;
+  } else if (strcmp(sensor_name, "SENSOR_SONY_IMX623") == 0) {
+    // TODO: implement. currently copied from imx728
+    *analog_gain_mapped = (int)((log2(analog_gain) - 10.0) * 60.0);
+    *exposure_time_mapped = exposure_time;
   } else {
     GST_ERROR_OBJECT (self, "Unknown sensor: %s", self->sensor_name);
   }
